@@ -118,13 +118,13 @@ create local temp table network_fcast on commit preserve rows as
         group by 1,2
 ;
 
-drop table if exists reg_oo_weekly;
-create local temp table reg_oo_weekly on commit preserve rows as
-        select
-                c.item as product_part_number
+drop table if exists fc_oo_weekly;
+create local temp table fc_oo_weekly on commit preserve rows as
+        select  c.item as product_part_number
+                ,l.location_code
                 ,r.region
                 ,date_trunc('week',date(year||'-'||month||'-'||day)) as week
-                ,sum(onordqty) as oo_region
+                ,sum(onordqty) as oo_FC
         from chewy_prod_740.C_ONORDER_DET c
         join chewybi.products p on product_part_number = item
         join chewybi.procurement_document_measures pdm on document_number = lotid
@@ -133,6 +133,17 @@ create local temp table reg_oo_weekly on commit preserve rows as
         where 1=1
                 and (lotID like '%%RS%%' or lotID like '%%TR%%')
                 and date(year||'-'||month||'-'||day) >= current_date
+        group by 1,2,3,4
+;
+
+drop table if exists reg_oo_weekly;
+create local temp table reg_oo_weekly on commit preserve rows as
+        select
+                product_part_number
+                ,region
+                ,week
+                ,sum(oo_FC) as oo_region
+        from fc_oo_weekly
         group by 1,2,3
 ;
 
@@ -252,12 +263,18 @@ create local temp table final on commit preserve rows as
                         and f.week=r.week
 ;
 
+drop table if exists cil;
+create local temp table cil on commit preserve rows as
+        select *
+        from chewy_prod_740.C_ITEMLOCATION cil
+;
+
 --Get full item-FC set to get all OUTLs as proposals don't account for all item-FCs
 --Only look at assorted items as non-assorted items do not get replenished; therefore no OUTL
 drop table if exists direct_props;
 create local temp table direct_props on commit preserve rows as
         select cil.item
-                ,cil.location as location
+                ,cil.location
                 ,avedemqty as fc_avedemqty
                 ,qty as proposed_qty
                 ,tpeh.supplier
@@ -269,7 +286,7 @@ create local temp table direct_props on commit preserve rows as
                 ,(min(duedate) over (partition by cil.item, region))::date as min_ERDD_region
                 ,reg.region
                 ,status
-        from chewy_prod_740.C_ITEMLOCATION cil
+        from cil
         join reg on reg.location_code=cil.location
         left join chewy_prod_740.t_proposals_edit tpeh
                 on tpeh.item=cil.item
@@ -330,7 +347,7 @@ create local temp table tunnel on commit preserve rows as
                 ,left(whouse,4) as tunn_fc -- stkono is the IP and stkmin is the SS(outl) in SO99
                 ,row_number() over (partition by props.item,region order by greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_region --Rank of the proposal's need against other FC proposals in the same Region for the item
                 ,row_number() over (partition by props.item order by greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_network --Rank of the proposal's need against all FC proposals in the network for the item
-        from props
+        from direct_props props
         join chewy_prod_740.T_TUNNEL_D_STK_UNION stk on stk.item = props.item and coalesce(props.duedate,props.min_ERDD_region) = date and left(whouse,4) = props.location
         where 1=1
 ;
@@ -450,57 +467,99 @@ create local temp table need_calcs on commit preserve rows as
 ;
 
 --Add actions to each proposal line (KEEP/CANCEL)
-select v.vendor_purchaser_code as "Supply Planner"
-        ,MC1
-        ,case   when supplier is null then 'REJECT: Did not Propose'
-                when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
-                when FC_Region_need_Percent_so99 < 0.5 then 'REJECT'
-                when FC_Region_need_Percent_so99 >= 0.5 then 'APPROVE' --explore these items impact on Network
-                else null
-                end as action_
-        ,item
-        ,region
-        ,location
-        ,p.product_abc_code
-        ,p.is_NEW_ITEM
-        ,avg_daily_forecast
-        ,supplier
-        ,v.vendor_name
-        ,v.vendor_distribution_method
-        ,release_date
-        ,ERDD
-        ,MOQ
-        
-        ,projected_region_oos
-        ,projected_network_oos
-        ,round(FC_NEED_so99,2) as FC_NEED_so99
-        ,proposed_FC_qty
-        ,round(FC_Region_need_Percent_so99,2) as FC_Region_need_Percent_so99
-        ,region_proposed_QTY_cummulative
-        ,round(total_reg_OUTL_so99,3) as total_reg_OUTL_so99
-        ,round(total_reg_IP_so99,3) as total_reg_IP_so99
-        ,round(total_reg_NEED_so99,3) as total_reg_NEED_so99
-        ,fc_need_rank_in_region
-        ,case when region_need_left_after_order_cummulative_so99 < 0 then 0 else round(region_need_left_after_order_cummulative_so99,2) end as region_need_left_after_order_cummulative_so99
-        ,case when region_need_left_after_order_cummulative_so99 > 0 then 0 else abs(round(region_need_left_after_order_cummulative_so99,2)) end as "Region Excess Units created from Order - cummulative"
-        
-        ,network_proposed_QTY_cummulative
-        ,round(FC_Network_need_percent_cummulative_so99,2) as FC_Network_need_percent_cummulative_so99
-        ,round(total_network_OUTL_so99,3) as total_network_OUTL_so99
-        ,round(total_network_IP_so99,3) as total_network_IP_so99
-        ,round(total_network_NEED_so99,3) as total_network_NEED_so99
-        ,fc_need_rank_in_network
-        ,current_network_IP_with_proposed_qty_cummulative_so99
-        ,case when network_need_left_after_order_cummulative_so99 < 0 then 0 else round(network_need_left_after_order_cummulative_so99,2) end as network_need_left_after_order_cummulative_so99
-        ,case when current_network_excess_created_cummulative_so99 < 0 then 0 else round(current_network_excess_created_cummulative_so99,2) end as "Network Excess Units created from Order - cummulative"
-        ,abs(round(network_excess_created_from_order_cummulative_DOS_so99,0)) as network_excess_created_from_order_cummulative_DOS
-        ,network_excess_created_cummulative_DOS_bucket
-        ,round(proposed_ordered_units_cummulative_DOS_so99,0) as proposed_ordered_units_cummulative_DOS
-        ,proposed_ordered_units_cummulative_DOS_bucket
-        ,case when MOQ / nullifzero(avg_daily_forecast) > 60 then true else false end as has_high_MOQ
-from need_calcs n
-left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
-join products p on n.item=p.product_part_number
-where 1=1
-        and supplier is not null --Remove item-FCs that did not have a proposal today.
-order by 1,4,region,fc_need_rank_in_region;
+drop table if exists direct_prop_recommendations;
+create local temp table direct_prop_recommendations on commit preserve rows as
+        select v.vendor_purchaser_code as "Supply Planner"
+                ,MC1
+                ,case   when supplier is null then 'REJECT: Did not Propose'
+                        when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
+                        when FC_Region_need_Percent_so99 < 0.5 then 'REJECT'
+                        when FC_Region_need_Percent_so99 >= 0.5 then 'APPROVE' --explore these items impact on Network
+                        else null
+                        end as action_
+                ,item
+                ,region
+                ,location
+                ,p.product_abc_code
+                ,p.is_NEW_ITEM
+                ,avg_daily_forecast
+                ,supplier
+                ,v.vendor_name
+                ,v.vendor_distribution_method
+                ,release_date
+                ,ERDD
+                ,MOQ
+                
+                ,projected_region_oos
+                ,projected_network_oos
+                ,round(FC_NEED_so99,2) as FC_NEED_so99
+                ,proposed_FC_qty
+                ,round(FC_Region_need_Percent_so99,2) as FC_Region_need_Percent_so99
+                ,region_proposed_QTY_cummulative
+                ,round(total_reg_OUTL_so99,3) as total_reg_OUTL_so99
+                ,round(total_reg_IP_so99,3) as total_reg_IP_so99
+                ,round(total_reg_NEED_so99,3) as total_reg_NEED_so99
+                ,fc_need_rank_in_region
+                ,case when region_need_left_after_order_cummulative_so99 < 0 then 0 else round(region_need_left_after_order_cummulative_so99,2) end as region_need_left_after_order_cummulative_so99
+                ,case when region_need_left_after_order_cummulative_so99 > 0 then 0 else abs(round(region_need_left_after_order_cummulative_so99,2)) end as "Region Excess Units created from Order - cummulative"
+                
+                ,network_proposed_QTY_cummulative
+                ,round(FC_Network_need_percent_cummulative_so99,2) as FC_Network_need_percent_cummulative_so99
+                ,round(total_network_OUTL_so99,3) as total_network_OUTL_so99
+                ,round(total_network_IP_so99,3) as total_network_IP_so99
+                ,round(total_network_NEED_so99,3) as total_network_NEED_so99
+                ,fc_need_rank_in_network
+                ,current_network_IP_with_proposed_qty_cummulative_so99
+                ,case when network_need_left_after_order_cummulative_so99 < 0 then 0 else round(network_need_left_after_order_cummulative_so99,2) end as network_need_left_after_order_cummulative_so99
+                ,case when current_network_excess_created_cummulative_so99 < 0 then 0 else round(current_network_excess_created_cummulative_so99,2) end as "Network Excess Units created from Order - cummulative"
+                ,abs(round(network_excess_created_from_order_cummulative_DOS_so99,0)) as network_excess_created_from_order_cummulative_DOS
+                ,network_excess_created_cummulative_DOS_bucket
+                ,round(proposed_ordered_units_cummulative_DOS_so99,0) as proposed_ordered_units_cummulative_DOS
+                ,proposed_ordered_units_cummulative_DOS_bucket
+                ,case when MOQ / nullifzero(avg_daily_forecast) > 60 then true else false end as has_high_MOQ
+        from need_calcs n
+        left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
+        join products p on n.item=p.product_part_number
+        where 1=1
+                and supplier is not null --Remove item-FCs that did not have a proposal today.
+        order by 1,4,region,fc_need_rank_in_region;
+
+drop table if exists fillins;
+create local temp table fillins on commit preserve rows as      
+        select action_
+                ,fp.*
+                ,zeroifnull(current_FC_oo) as current_FC_OO
+                ,current_on_hand_FC
+                ,zeroifnull(current_FC_oo)+zeroifnull(current_on_hand_FC) as current_FC_IP
+                ,round((zeroifnull(current_FC_oo)+zeroifnull(current_on_hand_FC)) / nullifzero(fc_avedemqty),0) as current_IP_DOS
+                ,case when round((zeroifnull(current_FC_oo)+zeroifnull(current_on_hand_FC)) / nullifzero(fc_avedemqty),0) > 30 then true else false end as IP_DOS_more_than_30
+                ,round((qty+zeroifnull(current_FC_oo)+zeroifnull(current_on_hand_FC)) / nullifzero(fc_avedemqty),0) as total_DOS_with_new_order
+                ,case when round((qty+zeroifnull(current_FC_oo)+zeroifnull(current_on_hand_FC)) / nullifzero(fc_avedemqty),0) > 60 then true else false end as total_DOS_more_than_30
+        from fillin_props fp
+        left join direct_prop_recommendations dp
+                on fp.item=dp.item
+                and fp.location=dp.location
+        left join (select product_part_number
+                        ,location_code
+                        ,SUM(oo_FC) as current_FC_oo
+                from fc_oo_weekly
+                group by 1,2) oo on fp.item=oo.product_part_number
+                                and fp.location=oo.location_code
+        left join (select product_part_number
+                        ,location_code
+                        ,current_on_hand_FC
+                   from inv_base) inv on fp.item=inv.product_part_number
+                                        and fp.location=inv.location_code
+        where 1=1
+--                and action_ is null
+        order by fp.item,fp.location
+;
+select f.*
+        ,case when action_ is not null then 'REJECT: primary vendor has recommendation'
+                when DOS_more_than_30 is true then 'REJECT: fillin prop qty DOS 30+'
+--                when IP_DOS_more_than_30 is true then 'REJECT: current FC IP DOS 30+'
+                when total_DOS_more_than_30 is true then 'REJECT: total DOS 60+'
+                else 'APPROVE: fillin'
+                end as fillin_prop_action_
+from fillins f
+order by item,location
