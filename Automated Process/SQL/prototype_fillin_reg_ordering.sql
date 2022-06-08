@@ -309,7 +309,6 @@ create local temp table fillin_props on commit preserve rows as
                 and status = 'X'
         order by 1,2
 ;
-select * from fillin_props;
 
 drop table if exists tunnel;
 create local temp table tunnel on commit preserve rows as
