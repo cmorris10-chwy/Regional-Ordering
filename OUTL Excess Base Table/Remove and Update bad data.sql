@@ -1,10 +1,11 @@
-select distinct product_merch_classification1 from  sandbox_supply_chain.outl_excess_base;
-select * from sandbox_supply_chain.outl_excess_base limit 1;
+-- This query is used to view the data in the table such as DoD SS totals.
 select snapshot_date, sum(SS) as SS from sandbox_supply_chain.outl_excess_base group by 1 order by 1 desc;
-select o.product_merch_classification1, p.private_label_flag, SUM(units_above_outl) as total_XS from sandbox_supply_chain.outl_excess_base o join chewybi.products p using(product_part_number) where snapshot_date=current_date group by 1,2 order by 1;
 
---INSERT /*+direct*/ INTO sandbox_supply_chain.outl_excess_base (
-select '2022-05-29'::date as snapshot_date
+-- Run below lines to delete and update problematic data
+DELETE /*+direct*/ FROM sandbox_supply_chain.outl_excess_base where snapshot_date in ('<Input Dates Here>') --User to update the list of dates for which data is to be removed.
+INSERT /*+direct*/ INTO sandbox_supply_chain.outl_excess_base (
+-- For each date that needs data you will need to add a Union of the query on lines 8-31. Update the date to input as the snapshot_date.
+select '2022-05-29'::date as snapshot_date 
         ,product_part_number
         , avg_daily_forecast
         , oh
