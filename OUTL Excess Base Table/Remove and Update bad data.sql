@@ -4,7 +4,7 @@ select snapshot_date, sum(SS) as SS from sandbox_supply_chain.outl_excess_base g
 -- Run below lines to delete and update problematic data
 DELETE /*+direct*/ FROM sandbox_supply_chain.outl_excess_base where snapshot_date in ('2022-05-29','2022-05-28') --User to update the list of dates for which data is to be removed.
 INSERT /*+direct*/ INTO sandbox_supply_chain.outl_excess_base (
--- For each date that needs data you will need to add a Union of the query on lines 8-31. Update the date to input as the snapshot_date.
+-- For each date that needs data you will need to add a Union of the query on lines 8-31. Update the date to input as the snapshot_date while keeping everything else the same.
 select '2022-05-29'::date as snapshot_date 
         ,product_part_number
         , avg_daily_forecast
