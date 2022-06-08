@@ -1,0 +1,56 @@
+select distinct product_merch_classification1 from  sandbox_supply_chain.outl_excess_base;
+select * from sandbox_supply_chain.outl_excess_base limit 1;
+select snapshot_date, sum(SS) as SS from sandbox_supply_chain.outl_excess_base group by 1 order by 1 desc;
+select o.product_merch_classification1, p.private_label_flag, SUM(units_above_outl) as total_XS from sandbox_supply_chain.outl_excess_base o join chewybi.products p using(product_part_number) where snapshot_date=current_date group by 1,2 order by 1;
+
+--INSERT /*+direct*/ INTO sandbox_supply_chain.outl_excess_base (
+select '2022-05-29'::date as snapshot_date
+        ,product_part_number
+        , avg_daily_forecast
+        , oh
+        , ss
+        , fcast_over_lt_rp
+        , oo
+        , outl
+        , oh_oo
+        , units_above_outl
+        , days_above_outl
+        , parent_company
+        , private_label_flag
+        , product_name -- removing as this information is not needed but we do not want to lose history data by creating a new table.
+        , product_merch_classification1
+        , product_merch_classification2 -- removing as this information is not needed but we do not want to lose history data by creating a new table.
+        , product_merch_classification3 -- removing as this information is not needed but we do not want to lose history data by creating a new table.
+        , otb_flag
+        , product_abc_code
+        , units_aged_over_60_days
+        , excess_inventory
+        , reason_for_excess
+from sandbox_supply_chain.outl_excess_base
+where snapshot_date='2022-05-28'
+union
+select '2022-05-30'::date as snapshot_date
+        ,product_part_number
+        , avg_daily_forecast
+        , oh
+        , ss
+        , fcast_over_lt_rp
+        , oo
+        , outl
+        , oh_oo
+        , units_above_outl
+        , days_above_outl
+        , parent_company
+        , private_label_flag
+        , product_name -- removing as this information is not needed but we do not want to lose history data by creating a new table.
+        , product_merch_classification1
+        , product_merch_classification2 -- removing as this information is not needed but we do not want to lose history data by creating a new table.
+        , product_merch_classification3 -- removing as this information is not needed but we do not want to lose history data by creating a new table.
+        , otb_flag
+        , product_abc_code
+        , units_aged_over_60_days
+        , excess_inventory
+        , reason_for_excess
+from sandbox_supply_chain.outl_excess_base
+where snapshot_date='2022-05-28'
+);
