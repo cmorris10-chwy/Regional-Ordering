@@ -254,8 +254,8 @@ create local temp table final on commit preserve rows as
 
 --Get full item-FC set to get all OUTLs as proposals don't account for all item-FCs
 --Only look at assorted items as non-assorted items do not get replenished; therefore no OUTL
-drop table if exists props;
-create local temp table props on commit preserve rows as
+drop table if exists direct_props;
+create local temp table direct_props on commit preserve rows as
         select cil.item
                 ,cil.location as location
                 ,qty as proposed_qty
@@ -275,10 +275,32 @@ create local temp table props on commit preserve rows as
                 and left(tpeh.destwhs,4)=cil.location
                 and tpeh.supplier=cil.supplier
                 and tpeh.prundate = current_date
-                and status != 'X'
+                and status != 'X' --Fill in proposals
         left join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
         where 1=1
                 and (tpeh.supplier is null or tpeh.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
+;
+
+drop table if exists fillin_props;
+create local temp table fillin_props on commit preserve rows as
+        select item
+                ,destwhs as location
+                ,tpeh.supplier
+                ,v.vendor_name
+                ,prundate::date
+                ,duedate::date
+                ,(min(duedate) over (partition by item, region))::date as min_ERDD_region
+                ,reg.region
+                ,status
+                ,qty
+        from chewy_prod_740.t_proposals_edit tpeh
+        join reg on reg.location_code=split_part(destwhs,'_',1)
+        join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
+        where 1=1
+                and tpeh.supplier not in (select distinct location_code from reg)
+                and tpeh.prundate = current_date
+                and status = 'X'
+        order by 1,2
 ;
 
 drop table if exists tunnel;
