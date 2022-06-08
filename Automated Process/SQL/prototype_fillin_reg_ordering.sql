@@ -258,6 +258,7 @@ drop table if exists direct_props;
 create local temp table direct_props on commit preserve rows as
         select cil.item
                 ,cil.location as location
+                ,avedemqty as fc_avedemqty
                 ,qty as proposed_qty
                 ,tpeh.supplier
                 ,v.vendor_name
@@ -283,25 +284,32 @@ create local temp table direct_props on commit preserve rows as
 
 drop table if exists fillin_props;
 create local temp table fillin_props on commit preserve rows as
-        select item
-                ,destwhs as location
+        select tpeh.item
+                ,split_part(destwhs,'_',1) as location
                 ,tpeh.supplier
                 ,v.vendor_name
                 ,prundate::date
                 ,duedate::date
-                ,(min(duedate) over (partition by item, region))::date as min_ERDD_region
+                ,(min(duedate) over (partition by tpeh.item, region))::date as min_ERDD_region
                 ,reg.region
                 ,status
                 ,qty
+                ,fc_avedemqty
+                ,round(qty / nullifzero(fc_avedemqty),0) as FC_fillin_proposed_DOS
+                ,case when round(qty / nullifzero(fc_avedemqty),0) > 30 then true else false end as DOS_more_than_30
         from chewy_prod_740.t_proposals_edit tpeh
         join reg on reg.location_code=split_part(destwhs,'_',1)
         join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
+        join (select item, location, fc_avedemqty
+                from direct_props) dp on tpeh.item=dp.item
+                                        and split_part(destwhs,'_',1)=dp.location
         where 1=1
                 and tpeh.supplier not in (select distinct location_code from reg)
                 and tpeh.prundate = current_date
                 and status = 'X'
         order by 1,2
 ;
+select * from fillin_props;
 
 drop table if exists tunnel;
 create local temp table tunnel on commit preserve rows as
