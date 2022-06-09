@@ -48,6 +48,7 @@ create local temp table inv_base on commit preserve rows as
                 and l.location_active_warehouse = 1
                 and l.location_warehouse_type = 0
                 and l.product_company_description = 'Chewy'
+                and i.product_part_number='100852'
 ;
 
 drop table if exists products;
@@ -100,6 +101,7 @@ create local temp table reg_fcast on commit preserve rows as
                         and l.location_active_warehouse = 1
                         and l.location_warehouse_type = 0
                         and l.product_company_description = 'Chewy'
+                        and product_part_number='100852'
                         group by 1,2,3
                 )
         select *
@@ -133,6 +135,7 @@ create local temp table reg_oo_weekly on commit preserve rows as
         where 1=1
                 and (lotID like '%%RS%%' or lotID like '%%TR%%')
                 and date(year||'-'||month||'-'||day) >= current_date
+                and c.item='100852'
         group by 1,2,3
 ;
 
@@ -254,68 +257,78 @@ create local temp table final on commit preserve rows as
 
 --Get full item-FC set to get all OUTLs as proposals don't account for all item-FCs
 --Only look at assorted items as non-assorted items do not get replenished; therefore no OUTL
+--drop table if exists props;
+--create local temp table props on commit preserve rows as
+--        select cil.item
+--                ,cil.location as location
+--                ,qty as proposed_qty
+--                ,tpeh.supplier
+--                ,v.vendor_name
+--                ,cil.MINRESINT as review_period
+--                ,cil.MINRESLOT as MOQ
+--                ,prundate::date
+--                ,duedate::date
+--                ,(min(duedate) over (partition by cil.item, region))::date as min_ERDD_region
+--                ,reg.region
+--                ,status
+--        from chewy_prod_740.C_ITEMLOCATION cil
+--        join reg on reg.location_code=cil.location
+--        join chewybi.products p on p.product_part_number=cil.item
+--        left join chewy_prod_740.t_proposals_edit tpeh
+--                on tpeh.item=cil.item
+--                and left(tpeh.destwhs,4)=cil.location
+--                and tpeh.supplier=cil.supplier
+--                and tpeh.prundate = current_date
+----                and status != 'X'
+--        left join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
+--        where 1=1
+--                and (tpeh.supplier is null or tpeh.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
+--                and coalesce(p.product_discontinued_flag,false) is false
+--        order by 1,2
+--;
+--to test while in-between order days
 drop table if exists props;
 create local temp table props on commit preserve rows as
         select cil.item
                 ,cil.location as location
                 ,qty as proposed_qty
-                ,tpeh.supplier
+                ,prop.supplier
                 ,v.vendor_name
                 ,cil.MINRESINT as review_period
                 ,cil.MINRESLOT as MOQ
                 ,prundate::date
                 ,duedate::date
-                ,(min(duedate) over (partition by cil.item, region))::date as min_ERDD_region
+                ,(min(duedate) over (partition by cil.item, region,case when status is null then '3' when status='X' then '2' else '1' end))::date as min_ERDD_region --Need to change as this now considers Fillin which have short LT
                 ,reg.region
                 ,status
+                ,case when status is null then '3'
+                        when status='X' then '2'
+                        else '1'
+                        end as proposal_type
+                ,case when status='X' then true else false end as is_fillin_prop
         from chewy_prod_740.C_ITEMLOCATION cil
         join reg on reg.location_code=cil.location
         join chewybi.products p on p.product_part_number=cil.item
-        left join chewy_prod_740.t_proposals_edit tpeh
-                on tpeh.item=cil.item
-                and left(tpeh.destwhs,4)=cil.location
-                and tpeh.supplier=cil.supplier
-                and tpeh.prundate = current_date
---                and status != 'X'
-        left join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
+        left join chewybi.T_PROPOSALS_EDIT_SNAPSHOT prop 
+                on cil.item=prop.item
+                and cil.location=left(prop.destwhs,4)
+                and prop.prundate=current_date-1
+                and prop.create_date=current_date-1
+        left join chewybi.vendors v on split_part(prop.supplier,'-',1)=v.vendor_number
         where 1=1
-                and (tpeh.supplier is null or tpeh.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
+                and (prop.supplier is null or prop.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
                 and coalesce(p.product_discontinued_flag,false) is false
+                and cil.item='100852'
         order by 1,2
 ;
---to test while in-between order days
-select cil.item
-        ,cil.location as location
-        ,qty as proposed_qty
-        ,prop.supplier
-        ,v.vendor_name
-        ,cil.MINRESINT as review_period
-        ,cil.MINRESLOT as MOQ
-        ,prundate::date
-        ,duedate::date
-        ,(min(duedate) over (partition by cil.item, region))::date as min_ERDD_region
-        ,reg.region
-        ,status
-from chewy_prod_740.C_ITEMLOCATION cil
-join reg on reg.location_code=cil.location
-join chewybi.products p on p.product_part_number=cil.item
-left join chewybi.T_PROPOSALS_EDIT_SNAPSHOT prop 
-        on cil.item=prop.item
-        and cil.location=left(prop.destwhs,4)
-        and prop.prundate=current_date-1
-        and prop.create_date=current_date-1
-left join chewybi.vendors v on split_part(prop.supplier,'-',1)=v.vendor_number
-where 1=1
-        and (prop.supplier is null or prop.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
-        and coalesce(p.product_discontinued_flag,false) is false
-order by 1,2
-;
+select * from props;
 
 drop table if exists tunnel;
 create local temp table tunnel on commit preserve rows as
         select props.item
                 ,props.location
                 ,props.proposed_qty
+                ,proposal_type
                 ,props.supplier
                 ,props.vendor_name
                 ,props.review_period
@@ -329,22 +342,26 @@ create local temp table tunnel on commit preserve rows as
                 ,greatest(0,stkono) as FC_IP_so99
                 ,greatest(0,stkmin)-greatest(0,stkono) as FC_NEED_so99 
                 ,left(whouse,4) as tunn_fc -- stkono is the IP and stkmin is the SS(outl) in SO99
-                ,row_number() over (partition by props.item,region order by greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_region --Rank of the proposal's need against other FC proposals in the same Region for the item
+                ,row_number() over (partition by props.item,region order by proposal_type asc, greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_region --Rank of the proposal's need against other FC proposals in the same Region for the item
                 ,row_number() over (partition by props.item order by greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_network --Rank of the proposal's need against all FC proposals in the network for the item
         from props
         join chewy_prod_740.T_TUNNEL_D_STK_UNION stk on stk.item = props.item and coalesce(props.duedate,props.min_ERDD_region) = date and left(whouse,4) = props.location
         where 1=1
+        order by 1,2
 ;
+select * from tunnel;
        
 --Get region level metrics for each item
-drop table if exists reg_tunnel;
-create local temp table reg_tunnel on commit preserve rows as
+drop table if exists reg_tunnel_primary;
+create local temp table reg_tunnel_primary on commit preserve rows as
         select item
                 ,t.region
                 ,sum(greatest(0,FC_OUTL_so99)) as total_reg_OUTL_so99
                 ,sum(greatest(0,FC_IP_so99)) as total_reg_IP_so99
                 ,sum(greatest(0,FC_OUTL_so99))-sum(greatest(0,FC_IP_so99)) as total_reg_NEED_so99
         from tunnel t
+        where 1=1
+                and proposal_type != 2
         group by 1,2
 ;
 
@@ -373,6 +390,8 @@ create local temp table full_tunnel on commit preserve rows as
                 ,t.prundate as release_date
                 ,t.duedate as ERDD --fill in for item-FCs without a proposal
                 ,fin.projected_on_hand_region
+                ,case when zeroifnull(fin.projected_on_hand_region) <= 0 then true else false end as projected_region_oos
+                ,case when zeroifnull(fin.projected_on_hand_network) <= 0 then true else false end as projected_network_oos
                 ,fin.projected_on_order_region
                 ,fin.projected_on_hand_network
                 ,fin.projected_on_order_network
@@ -388,8 +407,6 @@ create local temp table full_tunnel on commit preserve rows as
                 
                 ,fin.current_on_hand_network
                 ,fin.current_on_order_network
-                ,case when zeroifnull(fin.projected_on_hand_region) <= 0 then true else false end as projected_region_oos
-                ,case when zeroifnull(fin.projected_on_hand_network) <= 0 then true else false end as projected_network_oos
                 
                 ,outl.outl as current_OUTL_network_calcd --We use this OUTL as the SO99 OUTL is not the OUTL used to calculate Excess Inventory
                 ,outl.oh_oo as current_IP_network_calcd
@@ -422,6 +439,8 @@ create local temp table full_tunnel on commit preserve rows as
                 and fin.region = t.region
         order by item,region,fc_need_rank_in_region
 ;
+select * from full_tunnel;
+--QQ: Do we want to base regional OOS on Direct or Distro ERDD week? 
 
 drop table if exists need_calcs;
 create local temp table need_calcs on commit preserve rows as
