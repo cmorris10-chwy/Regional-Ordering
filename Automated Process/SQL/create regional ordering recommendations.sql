@@ -270,6 +270,7 @@ create local temp table props on commit preserve rows as
                 ,status
         from chewy_prod_740.C_ITEMLOCATION cil
         join reg on reg.location_code=cil.location
+        join chewybi.products p on p.product_part_number=cil.item
         left join chewy_prod_740.t_proposals_edit tpeh
                 on tpeh.item=cil.item
                 and left(tpeh.destwhs,4)=cil.location
@@ -279,6 +280,7 @@ create local temp table props on commit preserve rows as
         left join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
         where 1=1
                 and (tpeh.supplier is null or tpeh.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
+                and coalesce(p.product_discontinued_flag,false) is false
 ;
 
 drop table if exists tunnel;
