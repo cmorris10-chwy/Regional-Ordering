@@ -298,7 +298,7 @@ create local temp table props on commit preserve rows as
                 ,cil.MINRESLOT as MOQ
                 ,prundate::date
                 ,duedate::date
-                ,(min(duedate) over (partition by cil.item, region,case when status is null then '3' when status='X' then '2' else '1' end))::date as min_ERDD_region --Need to change as this now considers Fillin which have short LT
+                ,(min(case when status !='X' then duedate else null end) over (partition by cil.item, region))::date as min_ERDD_region --Use Min Date for only Primary proposals. This is because we want to calculate OOS for the week the Direct arrives
                 ,reg.region
                 ,status
                 ,case when status is null then '3'
@@ -321,7 +321,7 @@ create local temp table props on commit preserve rows as
                 and cil.item='100852'
         order by 1,2
 ;
-select * from props;
+--select * from props;
 
 drop table if exists tunnel;
 create local temp table tunnel on commit preserve rows as
@@ -329,6 +329,7 @@ create local temp table tunnel on commit preserve rows as
                 ,props.location
                 ,props.proposed_qty
                 ,proposal_type
+                ,case when proposal_type=2 then true else false end as is_fillin
                 ,props.supplier
                 ,props.vendor_name
                 ,props.review_period
@@ -345,53 +346,60 @@ create local temp table tunnel on commit preserve rows as
                 ,row_number() over (partition by props.item,region order by proposal_type asc, greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_region --Rank of the proposal's need against other FC proposals in the same Region for the item
                 ,row_number() over (partition by props.item order by greatest(0,stkmin)-greatest(0,stkono) desc) as fc_need_rank_in_network --Rank of the proposal's need against all FC proposals in the network for the item
         from props
-        join chewy_prod_740.T_TUNNEL_D_STK_UNION stk on stk.item = props.item and coalesce(props.duedate,props.min_ERDD_region) = date and left(whouse,4) = props.location
+        join chewy_prod_740.T_TUNNEL_D_STK_UNION stk on stk.item = props.item and props.min_ERDD_region = date and left(whouse,4) = props.location --RNO1 is currently not included in this Table
         where 1=1
         order by 1,2
 ;
-select * from tunnel;
+--select * from tunnel;
        
 --Get region level metrics for each item
-drop table if exists reg_tunnel_primary;
-create local temp table reg_tunnel_primary on commit preserve rows as
+drop table if exists reg_tunnel;
+create local temp table reg_tunnel on commit preserve rows as
         select item
                 ,t.region
+--                ,is_fillin
                 ,sum(greatest(0,FC_OUTL_so99)) as total_reg_OUTL_so99
                 ,sum(greatest(0,FC_IP_so99)) as total_reg_IP_so99
                 ,sum(greatest(0,FC_OUTL_so99))-sum(greatest(0,FC_IP_so99)) as total_reg_NEED_so99
         from tunnel t
         where 1=1
-                and proposal_type != 2
-        group by 1,2
+                and is_fillin is false
+        group by 1,2--,3
 ;
+--select * from reg_tunnel;
+
 
 --Get network level metrics for each item
 drop table if exists network_tunnel;
 create local temp table network_tunnel on commit preserve rows as
         select item
+--                ,is_fillin
                 ,sum(greatest(0,total_reg_OUTL_so99)) as total_network_OUTL_so99
                 ,sum(greatest(0,total_reg_IP_so99)) as total_network_IP_so99
                 ,sum(greatest(0,total_reg_OUTL_so99))-sum(greatest(0,total_reg_IP_so99)) as total_network_NEED_so99
         from reg_tunnel
-        group by 1
+        group by 1--,2
 ;
+--select * from network_tunnel;
 
 drop table if exists full_tunnel;
 create local temp table full_tunnel on commit preserve rows as
         select t.item
                 ,fin.product_abc_code
                 ,fin.is_NEW_ITEM
+                ,round(fin.avg_daily_forecast,3) as avg_daily_forecast
                 ,t.region
                 ,t.location
-                ,round(fin.avg_daily_forecast,3) as avg_daily_forecast
+                ,t.proposal_type
+                ,t.is_fillin
                 ,t.supplier
                 ,t.MOQ
                 ,t.review_period
                 ,t.prundate as release_date
                 ,t.duedate as ERDD --fill in for item-FCs without a proposal
                 ,fin.projected_on_hand_region
-                ,case when zeroifnull(fin.projected_on_hand_region) <= 0 then true else false end as projected_region_oos
-                ,case when zeroifnull(fin.projected_on_hand_network) <= 0 then true else false end as projected_network_oos
+                ,case when zeroifnull(fin.projected_on_hand_region) <= 0 then true else false end as projected_region_oos_ERDDweek
+                ,case when zeroifnull(fin.projected_on_hand_network) <= 0 then true else false end as projected_network_oos_ERDDweek
                 ,fin.projected_on_order_region
                 ,fin.projected_on_hand_network
                 ,fin.projected_on_order_network
@@ -430,17 +438,20 @@ create local temp table full_tunnel on commit preserve rows as
         from tunnel t
         join reg_tunnel rt on t.item=rt.item
                         and t.region=rt.region
+--                        and t.is_fillin=rt.is_fillin
         join network_tunnel nt on t.item=nt.item
+--                                and t.is_fillin=nt.is_fillin
         left join sandbox_supply_chain.outl_excess_base outl on t.item=outl.product_part_number
                                                                 and outl.snapshot_date=current_date
         left join final fin 
                 on fin.product_part_number = t.item 
-                and fin.week = date_trunc('week',t.duedate) 
+                and fin.week = date_trunc('week',case when t.is_fillin then min_ERDD_region else t.duedate end) 
                 and fin.region = t.region
         order by item,region,fc_need_rank_in_region
 ;
-select * from full_tunnel;
+--select * from full_tunnel;
 --QQ: Do we want to base regional OOS on Direct or Distro ERDD week? 
+        --ALso, we are currently calculating regional Need using Distro SS and IP. We should rather use Primary regional OUTL,IP,Need for all Distro props too
 
 drop table if exists need_calcs;
 create local temp table need_calcs on commit preserve rows as
@@ -473,7 +484,7 @@ create local temp table need_calcs on commit preserve rows as
 select v.vendor_purchaser_code as "Supply Planner"
         ,MC1
         ,case   when supplier is null then 'REJECT: Did not Propose'
-                when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
+                when projected_region_oos_ERDDweek is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
                 when FC_Region_need_Percent_so99 < 0.5 then 'REJECT'
                 when FC_Region_need_Percent_so99 >= 0.5 then 'APPROVE' --explore these items impact on Network
                 else null
@@ -484,6 +495,8 @@ select v.vendor_purchaser_code as "Supply Planner"
         ,p.product_abc_code
         ,p.is_NEW_ITEM
         ,avg_daily_forecast
+        ,proposal_type
+        ,is_fillin
         ,supplier
         ,v.vendor_name
         ,v.vendor_distribution_method
@@ -491,8 +504,8 @@ select v.vendor_purchaser_code as "Supply Planner"
         ,ERDD
         ,MOQ
         
-        ,projected_region_oos
-        ,projected_network_oos
+        ,projected_region_oos_ERDDweek
+        ,projected_network_oos_ERDDweek
         ,round(FC_NEED_so99,2) as FC_NEED_so99
         ,proposed_FC_qty
         ,round(FC_Region_need_Percent_so99,2) as FC_Region_need_Percent_so99
@@ -522,5 +535,5 @@ from need_calcs n
 left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
 join products p on n.item=p.product_part_number
 where 1=1
-        and supplier is not null --Remove item-FCs that did not have a proposal today.
-order by 1,4,region,fc_need_rank_in_region;
+--        and supplier is not null --Remove item-FCs that did not have a proposal today.
+order by 4,region,fc_need_rank_in_region;
