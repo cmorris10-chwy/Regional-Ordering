@@ -48,7 +48,7 @@ create local temp table inv_base on commit preserve rows as
                 and l.location_active_warehouse = 1
                 and l.location_warehouse_type = 0
                 and l.product_company_description = 'Chewy'
-                and i.product_part_number='109408'
+--                and i.product_part_number='109408'
 ;
 
 drop table if exists products;
@@ -101,7 +101,7 @@ create local temp table reg_fcast on commit preserve rows as
                         and l.location_active_warehouse = 1
                         and l.location_warehouse_type = 0
                         and l.product_company_description = 'Chewy'
-                        and product_part_number='109408'
+--                        and product_part_number='109408'
                         group by 1,2,3
                 )
         select *
@@ -135,7 +135,7 @@ create local temp table reg_oo_weekly on commit preserve rows as
         where 1=1
                 and (lotID like '%%RS%%' or lotID like '%%TR%%')
                 and date(year||'-'||month||'-'||day) >= current_date
-                and c.item='109408'
+--                and c.item='109408'
         group by 1,2,3
 ;
 
@@ -287,7 +287,7 @@ create local temp table props on commit preserve rows as
         where 1=1
                 and (prop.supplier is null or prop.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
                 and coalesce(p.product_discontinued_flag,false) is false
-                and cil.item='109408'
+--                and cil.item='109408'
         order by 1,2
 ;
 --select * from props;
