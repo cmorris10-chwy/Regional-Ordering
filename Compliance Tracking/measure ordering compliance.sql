@@ -11,7 +11,7 @@ create local temp table regional_orders
         ,fc_region_need_percent float)
 on commit preserve rows;
 copy regional_orders
-from local 'C:\Users\cmorris10\Downloads\6-6-22_orders.csv'
+from local 'C:\Users\cmorris10\Downloads\6-8-22_orders.csv'
 parser fcsvparser(delimiter = ',');
 --select * from regional_orders;
 
@@ -38,7 +38,7 @@ create local temp table yesterdays_orders on commit preserve rows as
                 and deleted_by_users is false
                 and document_type = 'Purchase'
                 and pdpm.data_source = 'ORACLE'
-                and purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN')
+                and purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
                 and coalesce(document_wms_closed_flag,false) is false
                 and coalesce(document_ready_to_reconcile_flag,false) is false
 ;
@@ -58,7 +58,7 @@ create local temp table orders on commit preserve rows as
                 ,SUM(last_version_quantity) as last_version_quantity
                 ,SUM(outstanding_quantity) as outstanding_quantity
                 ,SUM(total_cost) as total_cost
-                ,SUM(original_quantity) / SUM(total_cost) as cost_per_unit
+                ,SUM(original_quantity) / nullifzero(SUM(total_cost)) as cost_per_unit
         from yesterdays_orders
         group by 1,2,3,4,5,6,7,8
         order by 2,3
@@ -67,6 +67,7 @@ create local temp table orders on commit preserve rows as
 select purchaser_code
         ,p.product_merch_classification1 as MC1
         ,document_order_date
+        ,region
         ,location_code
         ,orders_placed
         ,case when ro.action is null then 'Manual Order' else ro.action end as "Recommendation"
@@ -80,6 +81,7 @@ select purchaser_code
         ,v.vendor_direct_import_flag
         ,RDD
         ,ERDD
+        ,original_quantity - ro.proposed_qty as order_prop_qty_delta
         ,ro.proposed_qty
         ,ro.fc_region_need_percent
         ,original_quantity
@@ -117,6 +119,8 @@ left join regional_orders ro
         and o.vendor_number=split_part(ro.supplier,'-',1)
         and o.location_code=ro.location_cd
 where 1=1
+        and coalesce(p.private_label_flag,false) is false
+        and coalesce(v.vendor_direct_import_flag,false) is false
 order by 7
 ;
 
