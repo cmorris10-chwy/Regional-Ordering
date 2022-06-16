@@ -59,6 +59,7 @@ create local temp table products on commit preserve rows as
                 ,product_abc_code
                 ,product_discontinued_flag
                 ,product_published_flag
+                ,private_label_flag
                 ,case when ni.item_id is not null then true else false end as is_NEW_ITEM
         from (select distinct product_part_number
                 from inv_base) ib
@@ -434,12 +435,14 @@ select v.vendor_purchaser_code as "Supply Planner"
         ,item
         ,region
         ,location
+        ,private_label_flag
         ,p.product_abc_code
         ,p.is_NEW_ITEM
         ,avg_daily_forecast
         ,supplier
         ,v.vendor_name
         ,v.vendor_distribution_method
+        ,v.vendor_direct_import_flag
         ,release_date
         ,ERDD
         ,MOQ
@@ -475,5 +478,5 @@ from need_calcs n
 left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
 join products p on n.item=p.product_part_number
 where 1=1
-        and supplier is not null --Remove item-FCs that did not have a proposal today.
+--        and supplier is not null --Remove item-FCs that did not have a proposal today.
 order by 1,4,region,fc_need_rank_in_region;
