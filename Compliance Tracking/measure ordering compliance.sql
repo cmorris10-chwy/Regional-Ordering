@@ -1,4 +1,4 @@
-select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-1;
+--select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-1;
 
 drop table if exists regional_orders;
 create local temp table regional_orders
@@ -11,7 +11,7 @@ create local temp table regional_orders
         ,fc_region_need_percent float)
 on commit preserve rows;
 copy regional_orders
-from local 'C:\Users\cmorris10\Downloads\6-8-22_orders.csv'
+from local 'C:\Users\cmorris10\Downloads\6-15-22_orders.csv'
 parser fcsvparser(delimiter = ',');
 --select * from regional_orders;
 
@@ -124,8 +124,8 @@ where 1=1
 order by 7
 ;
 
-select *
-from sandbox_supply_chain.outl_excess_base
-where 1=1
-        and product_part_number='370875'
-order by snapshot_date desc;
+--select *
+--from sandbox_supply_chain.outl_excess_base
+--where 1=1
+--        and product_part_number='370875'
+--order by snapshot_date desc;
