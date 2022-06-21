@@ -1,7 +1,8 @@
 drop table if exists sandbox_supply_chain.regional_ordering;
 create table sandbox_supply_chain.regional_ordering as
         (
-                supply_planner varchar(20)
+                snapshot_date date
+                ,supply_planner varchar(20)
                 ,MC1 varchar(20)
                 ,action_ varchar(30)
                 ,item varchar(7)
