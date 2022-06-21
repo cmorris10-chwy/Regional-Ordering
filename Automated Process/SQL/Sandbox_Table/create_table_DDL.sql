@@ -8,11 +8,13 @@ create table sandbox_supply_chain.regional_ordering as
                 ,region varchar(12)
                 ,location varchar(4)
                 ,product_abc_code varchar(1)
+                ,private_label_flag boolean
                 ,is_NEW_ITEM boolean
                 ,avg_daily_forecast numeric
                 ,supplier varchar(20)
                 ,vendor_name varchar
                 ,vendor_distribution_method varchar(25)
+                ,direct_import_flag boolean
                 ,release_date date
                 ,ERDD date
                 ,MOQ int
