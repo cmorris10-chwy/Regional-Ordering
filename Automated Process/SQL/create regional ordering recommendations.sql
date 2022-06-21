@@ -59,6 +59,7 @@ create local temp table products on commit preserve rows as
                 ,product_abc_code
                 ,product_discontinued_flag
                 ,product_published_flag
+                ,private_label_flag
                 ,case when ni.item_id is not null then true else false end as is_NEW_ITEM
         from (select distinct product_part_number
                 from inv_base) ib
@@ -435,11 +436,13 @@ select v.vendor_purchaser_code as "Supply Planner"
         ,region
         ,location
         ,p.product_abc_code
+        ,p.private_label_flag
         ,p.is_NEW_ITEM
         ,avg_daily_forecast
         ,supplier
         ,v.vendor_name
         ,v.vendor_distribution_method
+        ,v.direct_import_flag
         ,release_date
         ,ERDD
         ,MOQ
