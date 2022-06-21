@@ -478,5 +478,5 @@ from need_calcs n
 left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
 join products p on n.item=p.product_part_number
 where 1=1
-        and supplier is not null --Remove item-FCs that did not have a proposal today.
+--        and supplier is not null --Remove item-FCs that did not have a proposal today.
 order by 1,4,region,fc_need_rank_in_region;
