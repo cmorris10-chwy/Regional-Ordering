@@ -1,4 +1,4 @@
-select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-1;
+select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-7;
 
 drop table if exists regional_orders;
 create local temp table regional_orders
@@ -38,7 +38,7 @@ create local temp table yesterdays_orders on commit preserve rows as
                 and deleted_by_users is false
                 and document_type = 'Purchase'
                 and pdpm.data_source = 'ORACLE'
-                and purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN')
+                and purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
                 and coalesce(document_wms_closed_flag,false) is false
                 and coalesce(document_ready_to_reconcile_flag,false) is false
 ;
