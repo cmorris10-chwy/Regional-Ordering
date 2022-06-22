@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 --select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-1;
+=======
+select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-7;
+>>>>>>> origin/main
 
 drop table if exists regional_orders;
 create local temp table regional_orders
