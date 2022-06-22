@@ -435,6 +435,7 @@ select v.vendor_purchaser_code as "Supply Planner"
         ,item
         ,region
         ,location
+        ,private_label_flag
         ,p.product_abc_code
         ,p.private_label_flag
         ,p.is_NEW_ITEM
