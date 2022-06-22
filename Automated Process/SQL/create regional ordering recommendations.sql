@@ -479,18 +479,8 @@ from need_calcs n
 left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
 join products p on n.item=p.product_part_number
 where 1=1
-<<<<<<< HEAD
-<<<<<<< HEAD
---        and supplier is not null --Remove item-FCs that did not have a proposal today.
-=======
-=======
->>>>>>> origin/reg-oos-metric
         and supplier is not null --Remove item-FCs that did not have a proposal today
         and coalesce(private_label_flag,false) is false
         and coalesce(vendor_direct_import_flag,false) is false
         and vendor_purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
-<<<<<<< HEAD
->>>>>>> origin/main
-=======
->>>>>>> origin/reg-oos-metric
 order by 1,4,region,fc_need_rank_in_region;
