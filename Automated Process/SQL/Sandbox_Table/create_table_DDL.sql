@@ -15,7 +15,7 @@ create table sandbox_supply_chain.regional_ordering as
                 ,supplier varchar(20)
                 ,vendor_name varchar
                 ,vendor_distribution_method varchar(25)
-                ,direct_import_flag boolean
+                ,vendor_direct_import_flag boolean
                 ,release_date date
                 ,ERDD date
                 ,MOQ int
