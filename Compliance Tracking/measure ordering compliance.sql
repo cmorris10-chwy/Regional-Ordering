@@ -115,6 +115,7 @@ create local temp table compliance_output on commit preserve rows as
                 ,v.vendor_direct_import_flag
                 ,RDD
                 ,o.ERDD as due_date
+                ,projected_region_oos
                 ,original_quantity - ro.proposed_FC_qty as order_prop_qty_delta
                 ,ro.proposed_FC_qty
                 ,ro.FC_Region_Need_percent_so99
