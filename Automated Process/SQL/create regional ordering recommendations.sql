@@ -48,7 +48,7 @@ create local temp table inv_base on commit preserve rows as
                 and l.location_active_warehouse = 1
                 and l.location_warehouse_type = 0
                 and l.product_company_description = 'Chewy'
-;
+; 
 
 drop table if exists products;
 create local temp table products on commit preserve rows as
@@ -102,6 +102,7 @@ create local temp table reg_fcast on commit preserve rows as
                         and l.location_warehouse_type = 0
                         and l.product_company_description = 'Chewy'
                         group by 1,2,3
+                        order by 1,2,3
                 )
         select *
                 ,avg(forecast_region) over(partition by product_part_number,region,week) as avg_daily_forecast_week
@@ -486,7 +487,7 @@ INSERT /*direct*/ INTO sandbox_supply_chain.regional_ordering (
                 and coalesce(private_label_flag,false) is false
                 and coalesce(vendor_direct_import_flag,false) is false
                 and vendor_purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
-        order by order_date,"Supply Planner",item,region,fc_need_rank_in_region
+        order by order_date,item,region,fc_need_rank_in_region
 );
 
 Select *
