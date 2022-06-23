@@ -42,7 +42,7 @@ drop table if exists item_ship_zones;
 create local temp table item_ship_zones on commit preserve rows as
         select olm.order_key
 --                ,case when count(distinct location_code) > 1 then 1 else 0 end as is_split
-                ,least(1,sum(case when nb.item_id is not null then 1 else 0 end)) as contains_nbhg_item 
+                ,least(1,sum(case when nb.item is not null then 1 else 0 end)) as contains_nbhg_item 
                 ,min(order_line_released_dttm::date) as order_released_date
                 ,avg(actual_zone) as actual_zone
         from chewybi.order_line_measures olm 
@@ -50,7 +50,7 @@ create local temp table item_ship_zones on commit preserve rows as
         join chewybi.shipment_order_line sol on olm.order_line_id=sol.order_line_id
         join locations l on location_key = fulfillment_center_key
         join chewybi.products p on olm.product_key=p.product_key
-        left join nb_hg_items nb on p.product_part_number=nb.item_id
+        left join nb_hg_items nb on p.product_part_number=nb.item
         where order_status not in ('X','J')
         group by 1
         having min(order_line_released_dttm::date) between '2022-04-01' and current_date - 1
