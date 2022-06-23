@@ -104,13 +104,13 @@ create local temp table compliance_output on commit preserve rows as
                 ,location_code
                 ,orders_placed
                 ,case when ro.action_ is null then 'Manual Order' else ro.action_ end as "Recommendation"
-                ,o.product_part_number
+                ,coalesce(ro.item,o.product_part_number) as product_part_number
                 ,p.product_abc_code
                 ,p.private_label_flag
                 ,p.product_discontinued_flag
                 ,case when u.cartonization_flag='NO' then true else false end as is_SIOC_item
                 ,network_avedemqty
-                ,o.vendor_number
+                ,coalesce(o.vendor_number,ro.supplier) as vendor_number
                 ,v.vendor_name
                 ,v.vendor_direct_import_flag
                 ,RDD
@@ -151,7 +151,7 @@ create local temp table compliance_output on commit preserve rows as
         left join sandbox_supply_chain.outl_excess_base ot
                 on o.product_part_number=ot.product_part_number
                 and ot.snapshot_date=o.document_order_date+1
-        left join regional_orders ro
+        full outer join regional_orders ro
                 on o.product_part_number=ro.item
                 and o.vendor_number=split_part(ro.supplier,'-',1)
                 and o.location_code=ro.location
