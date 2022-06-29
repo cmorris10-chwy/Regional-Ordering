@@ -2,19 +2,19 @@
 -- Measure Split% impact for orders w/NB HG items vs. orders w/o NB HG items --
 ----------------------------------------------------------------------------------
 -- 7 NB HG/Specialty Planner Codes: ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA')
-drop table if exists regional_orders;
-create local temp table regional_orders
-        (action varchar(10)
-        ,item_id varchar(6)
-        ,region varchar(12)
-        ,location_cd varchar(4)
-        ,supplier varchar(15)
-        ,proposed_qty int
-        ,fc_region_need_percent float)
-on commit preserve rows;
-copy regional_orders
-from local 'C:\Users\cmorris10\Downloads\6-13-22_orders.csv'
-parser fcsvparser(delimiter = ',');
+--drop table if exists regional_orders;
+--create local temp table regional_orders
+--        (action varchar(10)
+--        ,item_id varchar(6)
+--        ,region varchar(12)
+--        ,location_cd varchar(4)
+--        ,supplier varchar(15)
+--        ,proposed_qty int
+--        ,fc_region_need_percent float)
+--on commit preserve rows;
+--copy regional_orders
+--from local 'C:\Users\cmorris10\Downloads\6-13-22_orders.csv'
+--parser fcsvparser(delimiter = ',');
 
 drop table if exists locations;
 create local temp table locations on commit preserve rows as
@@ -53,8 +53,8 @@ create local temp table split_prods on commit preserve rows as
 
 drop table if exists nb_hg_items;
 create local temp table nb_hg_items on commit preserve rows as
-        select distinct item_id
-        from regional_orders
+        select distinct item
+        from sandbox_supply_chain.cmorris10_history_data_test --regional_orders
         order by 1
 ;
 
@@ -62,9 +62,9 @@ with a as (
         select order_released_date
                 ,order_key
                 ,max(is_split) as is_split
-                ,least(1,sum(case when item_id is not null then 1 else 0 end)) as contains_nbhg_item 
+                ,least(1,sum(case when item is not null then 1 else 0 end)) as contains_nbhg_item 
         from split_prods
-        left join nb_hg_items nb on nb.item_id = product_part_number
+        left join nb_hg_items nb on nb.item = product_part_number
         group by 1,2
 )
 select order_released_date

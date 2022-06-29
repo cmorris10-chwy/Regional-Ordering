@@ -1,27 +1,32 @@
 --select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-1;
 
-drop table if exists regional_orders;
-create local temp table regional_orders
-        (action varchar(10)
-        ,item_id varchar(6)
-        ,region varchar(12)
-        ,location_cd varchar(4)
-        ,supplier varchar(15)
-        ,proposed_qty int
-        ,fc_region_need_percent float)
-on commit preserve rows;
-copy regional_orders
-from local 'C:\Users\cmorris10\Downloads\6-15-22_orders.csv'
-parser fcsvparser(delimiter = ',');
+--drop table if exists regional_orders;
+--create local temp table regional_orders
+--        (action varchar(10)
+--        ,item_id varchar(6)
+--        ,region varchar(12)
+--        ,location_cd varchar(4)
+--        ,supplier varchar(15)
+--        ,proposed_qty int
+--        ,fc_region_need_percent float)
+--on commit preserve rows;
+--copy regional_orders
+--from local 'C:\Users\cmorris10\Downloads\6-15-22_orders.csv'
+--parser fcsvparser(delimiter = ',');
 
-select action
-        ,SUM(proposed_qty) as total_ordered_units
+drop table if exists regional_orders;
+create local temp table regional_orders on commit preserve rows as 
+        select *
+        from sandbox_supply_chain.regional_ordering where order_date=current_date-1;
+
+select action_
+        ,SUM(proposed_FC_qty) as total_ordered_units
 from regional_orders ro
-join chewybi.products p on ro.item_id=p.product_part_number
+join chewybi.products p on ro.item=p.product_part_number
 join chewybi.vendors v on v.vendor_number=split_part(ro.supplier,'-',1)
 where 1=1
-        and coalesce(p.private_label_flag,false) is false
-        and coalesce(v.vendor_direct_import_flag,false) is false
+--        and coalesce(p.private_label_flag,false) is false
+--        and coalesce(v.vendor_direct_import_flag,false) is false
 group by 1
 ;
 --select * from regional_orders;
@@ -45,7 +50,7 @@ create local temp table yesterdays_orders on commit preserve rows as
         join chewybi.products p using(product_key)
         join chewybi.vendors v using(vendor_key)
         join chewybi.locations l using(location_key)
-        where document_order_dttm::date=current_date-2 --Monday or Wednesday
+        where document_order_dttm::date=current_date-1 --Monday or Wednesday
                 and deleted_by_users is false
                 and document_type = 'Purchase'
                 and pdpm.data_source = 'ORACLE'
@@ -53,6 +58,7 @@ create local temp table yesterdays_orders on commit preserve rows as
                 and coalesce(document_wms_closed_flag,false) is false
                 and coalesce(document_ready_to_reconcile_flag,false) is false
 ;
+select purchaser_code,count(*) from yesterdays_orders group by 1;
 
 drop table if exists orders;
 create local temp table orders on commit preserve rows as
@@ -97,21 +103,22 @@ create local temp table compliance_output on commit preserve rows as
                 ,region
                 ,location_code
                 ,orders_placed
-                ,case when ro.action is null then 'Manual Order' else ro.action end as "Recommendation"
-                ,o.product_part_number
+                ,case when ro.action_ is null then 'Manual Order' else ro.action_ end as "Recommendation"
+                ,coalesce(ro.item,o.product_part_number) as product_part_number
                 ,p.product_abc_code
                 ,p.private_label_flag
                 ,p.product_discontinued_flag
                 ,case when u.cartonization_flag='NO' then true else false end as is_SIOC_item
                 ,network_avedemqty
-                ,o.vendor_number
+                ,coalesce(o.vendor_number,ro.supplier) as vendor_number
                 ,v.vendor_name
                 ,v.vendor_direct_import_flag
                 ,RDD
-                ,ERDD
-                ,original_quantity - ro.proposed_qty as order_prop_qty_delta
-                ,ro.proposed_qty
-                ,ro.fc_region_need_percent
+                ,o.ERDD as due_date
+                ,projected_region_oos
+                ,original_quantity - ro.proposed_FC_qty as order_prop_qty_delta
+                ,ro.proposed_FC_qty
+                ,ro.FC_Region_Need_percent_so99
                 ,original_quantity
                 ,last_version_quantity
                 ,outstanding_quantity
@@ -144,17 +151,17 @@ create local temp table compliance_output on commit preserve rows as
         left join sandbox_supply_chain.outl_excess_base ot
                 on o.product_part_number=ot.product_part_number
                 and ot.snapshot_date=o.document_order_date+1
-        left join regional_orders ro
-                on o.product_part_number=ro.item_id
+        full outer join regional_orders ro
+                on o.product_part_number=ro.item
                 and o.vendor_number=split_part(ro.supplier,'-',1)
-                and o.location_code=ro.location_cd
+                and o.location_code=ro.location
         where 1=1
                 and coalesce(p.private_label_flag,false) is false
                 and coalesce(v.vendor_direct_import_flag,false) is false
         order by 7
 ;
 
-select * from compliance_output where product_part_number='101303';
+select * from compliance_output order by 1,8,5;--where product_part_number='101303';
 
 ---------------------------------------------------------
 -- Explore PDP and Sales for items that created excess --
