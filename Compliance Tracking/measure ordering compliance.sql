@@ -1,34 +1,36 @@
 --select distinct purchaser_code from chewybi.procurement_document_product_measures where document_order_dttm::date=current_date-1;
 
---drop table if exists regional_orders;
---create local temp table regional_orders
---        (action varchar(10)
---        ,item_id varchar(6)
---        ,region varchar(12)
---        ,location_cd varchar(4)
---        ,supplier varchar(15)
---        ,proposed_qty int
---        ,fc_region_need_percent float)
---on commit preserve rows;
---copy regional_orders
---from local 'C:\Users\cmorris10\Downloads\6-15-22_orders.csv'
---parser fcsvparser(delimiter = ',');
+drop table if exists exclusion_vendors;
+create local temp table exclusion_vendors
+        (supplier_cd varchar(15)
+        ,min_dollar_amount numeric
+        ,min_weight numeric
+        ,min_units_per_order numeric)
+on commit preserve rows;
+copy exclusion_vendors
+from local 'C:\Users\cmorris10\OneDrive - Chewy.com, LLC\Projects\Excess Inventory\Compliance Reporting\Vendor_Exception_List.csv'
+parser fcsvparser(delimiter = ',');
 
 drop table if exists regional_orders;
 create local temp table regional_orders on commit preserve rows as 
-        select *
-        from sandbox_supply_chain.regional_ordering where order_date=current_date-1;
-
-select action_
-        ,SUM(proposed_FC_qty) as total_ordered_units
-from regional_orders ro
-join chewybi.products p on ro.item=p.product_part_number
-join chewybi.vendors v on v.vendor_number=split_part(ro.supplier,'-',1)
-where 1=1
---        and coalesce(p.private_label_flag,false) is false
---        and coalesce(v.vendor_direct_import_flag,false) is false
-group by 1
+        select r.*
+                ,case when e.supplier_cd is not null then true else false end as excluded_vendor
+        from sandbox_supply_chain.regional_ordering r 
+        left join exclusion_vendors e on split_part(r.supplier,'-',1)=e.supplier_cd
+        where order_date=current_date--1
 ;
+
+--select action_
+--        ,SUM(proposed_FC_qty) as total_ordered_units
+--from regional_orders ro
+--join chewybi.products p on ro.item=p.product_part_number
+--join chewybi.vendors v on v.vendor_number=split_part(ro.supplier,'-',1)
+--where 1=1
+----        and coalesce(p.private_label_flag,false) is false
+----        and coalesce(v.vendor_direct_import_flag,false) is false
+--group by 1
+--;
+
 --select * from regional_orders;
 
 drop table if exists yesterdays_orders;
@@ -50,7 +52,7 @@ create local temp table yesterdays_orders on commit preserve rows as
         join chewybi.products p using(product_key)
         join chewybi.vendors v using(vendor_key)
         join chewybi.locations l using(location_key)
-        where document_order_dttm::date=current_date-1 --Monday or Wednesday
+        where document_order_dttm::date=current_date--1 --Monday or Wednesday
                 and deleted_by_users is false
                 and document_type = 'Purchase'
                 and pdpm.data_source = 'ORACLE'
@@ -103,7 +105,17 @@ create local temp table compliance_output on commit preserve rows as
                 ,region
                 ,location_code
                 ,orders_placed
-                ,case when ro.action_ is null then 'Manual Order' else ro.action_ end as "Recommendation"
+                ,case when ro.action_ is null then 'Manual Order' 
+                        when ro.excluded_vendor is true then 'Exclusion Process'
+                        else ro.action_ end as "Recommendation"
+                ,case   when ro.excluded_vendor is true and orders_placed is not null then 'Ordered via Exclusion process'
+                        when ro.action_='APPROVE' and orders_placed is null then 'Not ordered but Approved'
+                        when ro.action_='APPROVE' and orders_placed is not null then 'Ordered and Approved'
+                        when ro.action_='REJECT' and orders_placed is not null then 'Ordered but Rejected'
+                        when ro.action_='REJECT' and orders_placed is null then 'Not ordered and Rejected'
+                        when ro.action_='REJECT: Did not Propose' and orders_placed is not null then 'Ordered without Proposal'
+                        else 'NA'
+                        end as action_taken_by_planner
                 ,coalesce(ro.item,o.product_part_number) as product_part_number
                 ,p.product_abc_code
                 ,p.private_label_flag
