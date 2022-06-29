@@ -272,6 +272,7 @@ create local temp table props on commit preserve rows as
         select cil.item
                 ,cil.location as location
                 ,qty as proposed_qty
+                ,case when ev.supplier_cd is not null then true else false end as is_exception_vendor
                 ,tpeh.supplier
                 ,v.vendor_name
                 ,cil.MINRESINT as review_period
@@ -291,6 +292,7 @@ create local temp table props on commit preserve rows as
                 and tpeh.prundate = current_date
                 and status != 'X'
         left join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
+        left join exclusion_vendors ev on v.vendor_number=ev.supplier_cd
         where 1=1
                 and (tpeh.supplier is null or tpeh.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
                 and coalesce(p.product_discontinued_flag,false) is false
