@@ -309,7 +309,7 @@ create local temp table tunnel on commit preserve rows as
         join chewy_prod_740.T_TUNNEL_D_STK_UNION stk on stk.item = props.item and coalesce(props.duedate,props.min_ERDD_region) = date and left(whouse,4) = props.location
         where 1=1
 ;
-       
+
 --Get region level metrics for each item
 drop table if exists reg_tunnel;
 create local temp table reg_tunnel on commit preserve rows as
@@ -428,69 +428,72 @@ create local temp table need_calcs on commit preserve rows as
 DELETE /*+direct*/ FROM sandbox_supply_chain.regional_ordering WHERE order_date = current_date;
 DELETE /*+direct*/ FROM sandbox_supply_chain.regional_ordering WHERE order_date < current_date - 365;
 INSERT /*direct*/ INTO sandbox_supply_chain.regional_ordering (
-        select current_date as order_date
-                ,v.vendor_purchaser_code as "Supply Planner"
-                ,MC1
-                ,case   when supplier is null then 'REJECT: Did not Propose'
-                        when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
-                        when FC_Region_need_Percent_so99 < 0.5 then 'REJECT'
-                        when FC_Region_need_Percent_so99 >= 0.5 then 'APPROVE' --explore these items impact on Network
-                        else null
-                        end as action_
-                ,item
-                ,region
-                ,location
-                ,p.product_abc_code
-                ,p.private_label_flag
-                ,p.is_NEW_ITEM
-                ,avg_daily_forecast
-                ,supplier
-                ,v.vendor_name
-                ,v.vendor_distribution_method
-                ,v.vendor_direct_import_flag
-                ,release_date
-                ,ERDD
-                ,MOQ
-                
-                ,projected_region_oos
-        --        ,projected_network_oos
-                ,round(FC_NEED_so99,2) as FC_NEED_so99
-                ,proposed_FC_qty
-                ,round(FC_Region_need_Percent_so99,2) as FC_Region_need_Percent_so99
-                ,region_proposed_QTY_cummulative
-                ,round(total_reg_OUTL_so99,3) as total_reg_OUTL_so99
-                ,round(total_reg_IP_so99,3) as total_reg_IP_so99
-                ,round(total_reg_NEED_so99,3) as total_reg_NEED_so99
-                ,fc_need_rank_in_region
-                ,case when region_need_left_after_order_cummulative_so99 < 0 then 0 else round(region_need_left_after_order_cummulative_so99,2) end as region_need_left_after_order_cummulative_so99
-        --        ,case when region_need_left_after_order_cummulative_so99 > 0 then 0 else abs(round(region_need_left_after_order_cummulative_so99,2)) end as "Region Excess Units created from Order - cummulative"
-                
-        --        ,network_proposed_QTY_cummulative
-        --        ,round(FC_Network_need_percent_cummulative_so99,2) as FC_Network_need_percent_cummulative_so99
-        --        ,round(total_network_OUTL_so99,3) as total_network_OUTL_so99
-        --        ,round(total_network_IP_so99,3) as total_network_IP_so99
-        --        ,round(total_network_NEED_so99,3) as total_network_NEED_so99
-        --        ,fc_need_rank_in_network
-        --        ,current_network_IP_with_proposed_qty_cummulative_so99
-        --        ,case when network_need_left_after_order_cummulative_so99 < 0 then 0 else round(network_need_left_after_order_cummulative_so99,2) end as network_need_left_after_order_cummulative_so99
-        --        ,case when current_network_excess_created_cummulative_so99 < 0 then 0 else round(current_network_excess_created_cummulative_so99,2) end as "Network Excess Units created from Order - cummulative"
-        --        ,abs(round(network_excess_created_from_order_cummulative_DOS_so99,0)) as network_excess_created_from_order_cummulative_DOS
-        --        ,network_excess_created_cummulative_DOS_bucket
-        --        ,round(proposed_ordered_units_cummulative_DOS_so99,0) as proposed_ordered_units_cummulative_DOS
-        --        ,proposed_ordered_units_cummulative_DOS_bucket
-                ,case when MOQ / nullifzero(avg_daily_forecast) > 60 then true else false end as has_high_MOQ
-        from need_calcs n
-        left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
-        join products p on n.item=p.product_part_number
-        where 1=1
-                and supplier is not null --Remove item-FCs that did not have a proposal today
+        with x as (
+                select current_date as order_date
+                        ,last_value(v.vendor_purchaser_code) over (partition by item,region) as "Supply Planner" --Need to populate missing supply planner codes so that the filter works properly
+                        ,MC1
+                        ,case   when supplier is null then 'REJECT: Did not Propose'
+                                when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
+                                when FC_Region_need_Percent_so99 < 0.5 then 'REJECT'
+                                when FC_Region_need_Percent_so99 >= 0.5 then 'APPROVE' --explore these items impact on Network
+                                else null
+                                end as action_
+                        ,item
+                        ,region
+                        ,location
+                        ,p.product_abc_code
+                        ,p.private_label_flag
+                        ,p.is_NEW_ITEM
+                        ,avg_daily_forecast
+                        ,supplier
+                        ,v.vendor_name
+                        ,v.vendor_distribution_method
+                        ,v.vendor_direct_import_flag
+                        ,release_date
+                        ,ERDD
+                        ,MOQ
+                        
+                        ,projected_region_oos
+                --        ,projected_network_oos
+                        ,round(FC_NEED_so99,2) as FC_NEED_so99
+                        ,proposed_FC_qty
+                        ,round(FC_Region_need_Percent_so99,2) as FC_Region_need_Percent_so99
+                        ,region_proposed_QTY_cummulative
+                        ,round(total_reg_OUTL_so99,3) as total_reg_OUTL_so99
+                        ,round(total_reg_IP_so99,3) as total_reg_IP_so99
+                        ,round(total_reg_NEED_so99,3) as total_reg_NEED_so99
+                        ,fc_need_rank_in_region
+                        ,case when region_need_left_after_order_cummulative_so99 < 0 then 0 else round(region_need_left_after_order_cummulative_so99,2) end as region_need_left_after_order_cummulative_so99
+                --        ,case when region_need_left_after_order_cummulative_so99 > 0 then 0 else abs(round(region_need_left_after_order_cummulative_so99,2)) end as "Region Excess Units created from Order - cummulative"
+                        
+                --        ,network_proposed_QTY_cummulative
+                --        ,round(FC_Network_need_percent_cummulative_so99,2) as FC_Network_need_percent_cummulative_so99
+                --        ,round(total_network_OUTL_so99,3) as total_network_OUTL_so99
+                --        ,round(total_network_IP_so99,3) as total_network_IP_so99
+                --        ,round(total_network_NEED_so99,3) as total_network_NEED_so99
+                --        ,fc_need_rank_in_network
+                --        ,current_network_IP_with_proposed_qty_cummulative_so99
+                --        ,case when network_need_left_after_order_cummulative_so99 < 0 then 0 else round(network_need_left_after_order_cummulative_so99,2) end as network_need_left_after_order_cummulative_so99
+                --        ,case when current_network_excess_created_cummulative_so99 < 0 then 0 else round(current_network_excess_created_cummulative_so99,2) end as "Network Excess Units created from Order - cummulative"
+                --        ,abs(round(network_excess_created_from_order_cummulative_DOS_so99,0)) as network_excess_created_from_order_cummulative_DOS
+                --        ,network_excess_created_cummulative_DOS_bucket
+                --        ,round(proposed_ordered_units_cummulative_DOS_so99,0) as proposed_ordered_units_cummulative_DOS
+                --        ,proposed_ordered_units_cummulative_DOS_bucket
+                        ,case when MOQ / nullifzero(avg_daily_forecast) > 60 then true else false end as has_high_MOQ
+                from need_calcs n
+                left join chewybi.vendors v on v.vendor_number=split_part(supplier,'-',1)
+                join products p on n.item=p.product_part_number
+                where 1=1
+        --                and supplier is not null --Remove item-FCs that did not have a proposal today
+--                        and coalesce(private_label_flag,false) is false
+--                        and coalesce(vendor_direct_import_flag,false) is false
+--                        and vendor_purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
+--                        and item='103496'
+                order by order_date,item,region,fc_need_rank_in_region
+        )
+        select *
+        from x
+        where "Supply Planner" in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
                 and coalesce(private_label_flag,false) is false
                 and coalesce(vendor_direct_import_flag,false) is false
-                and vendor_purchaser_code in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER')
-        order by order_date,item,region,fc_need_rank_in_region
 );
-
-Select *
-From sandbox_supply_chain.regional_ordering
-Where 1=1
-    And order_date=current_date;
