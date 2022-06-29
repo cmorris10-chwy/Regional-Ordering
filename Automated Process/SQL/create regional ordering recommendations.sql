@@ -13,6 +13,17 @@ copy new_items
 from local 'C:\users\cmorris10\Downloads\new_items.csv'
 parser fcsvparser(delimiter = ',');
 
+--Vendor exclusion list. Re-pull list from url: https://chewycomllc.sharepoint.com/:x:/r/sites/SupplyChain9/_layouts/15/guestaccess.aspx?share=EQFYYwP4VklHlIcKH3Dt3OEB9w6wEuFH9KLmbCrp2eOhIQ&e=4%3AXTzuTw&at=9
+drop table if exists exclusion_vendors;
+create local temp table exclusion_vendors
+        (supplier_cd varchar(15)
+        ,min_dollar_amount numeric
+        ,min_weight numeric
+        ,min_units_per_order numeric)
+on commit preserve rows;
+copy exclusion_vendors
+from local 'C:\Users\cmorris10\OneDrive - Chewy.com, LLC\Projects\Excess Inventory\Compliance Reporting\Vendor_Exception_List.csv'
+parser fcsvparser(delimiter = ',');
 
 drop table if exists reg;
 create local temp table reg on commit preserve rows as
