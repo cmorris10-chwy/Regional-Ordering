@@ -13,6 +13,17 @@ copy new_items
 from local 'C:\users\cmorris10\Downloads\new_items.csv'
 parser fcsvparser(delimiter = ',');
 
+--Vendor exclusion list. Re-pull list from url: https://chewycomllc.sharepoint.com/:x:/r/sites/SupplyChain9/_layouts/15/guestaccess.aspx?share=EQFYYwP4VklHlIcKH3Dt3OEB9w6wEuFH9KLmbCrp2eOhIQ&e=4%3AXTzuTw&at=9
+drop table if exists exclusion_vendors;
+create local temp table exclusion_vendors
+        (supplier_cd varchar(15)
+        ,min_dollar_amount numeric
+        ,min_weight numeric
+        ,min_units_per_order numeric)
+on commit preserve rows;
+copy exclusion_vendors
+from local 'C:\Users\cmorris10\OneDrive - Chewy.com, LLC\Projects\Excess Inventory\Compliance Reporting\Vendor_Exception_List.csv'
+parser fcsvparser(delimiter = ',');
 
 drop table if exists reg;
 create local temp table reg on commit preserve rows as
@@ -261,6 +272,7 @@ create local temp table props on commit preserve rows as
         select cil.item
                 ,cil.location as location
                 ,qty as proposed_qty
+                ,case when ev.supplier_cd is not null then true else false end as is_exception_vendor
                 ,tpeh.supplier
                 ,v.vendor_name
                 ,cil.MINRESINT as review_period
@@ -280,6 +292,7 @@ create local temp table props on commit preserve rows as
                 and tpeh.prundate = current_date
                 and status != 'X'
         left join chewybi.vendors v on split_part(tpeh.supplier,'-',1)=v.vendor_number
+        left join exclusion_vendors ev on v.vendor_number=ev.supplier_cd
         where 1=1
                 and (tpeh.supplier is null or tpeh.supplier not in (select distinct location_code from reg)) --We do not want to order self-transfers
                 and coalesce(p.product_discontinued_flag,false) is false
@@ -430,7 +443,7 @@ DELETE /*+direct*/ FROM sandbox_supply_chain.regional_ordering WHERE order_date 
 INSERT /*direct*/ INTO sandbox_supply_chain.regional_ordering (
         with x as (
                 select current_date as order_date
-                        ,last_value(v.vendor_purchaser_code) over (partition by item,region) as "Supply Planner" --Need to populate missing supply planner codes so that the filter works properly
+                        ,last_value(v.vendor_purchaser_code ignore nulls) over (partition by item,region) as "Supply Planner" --Need to populate missing supply planner codes so that the filter works properly
                         ,MC1
                         ,case   when supplier is null then 'REJECT: Did not Propose'
                                 when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released

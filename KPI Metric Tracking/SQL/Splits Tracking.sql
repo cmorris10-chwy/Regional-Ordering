@@ -39,7 +39,7 @@ create local temp table splits on commit preserve rows as
         join chewybi.products p on olm.product_key=p.product_key
         where order_status not in ('X','J')
         group by 1
-        having min(order_line_released_dttm::date) between current_date - 90 and current_date - 1
+        having min(order_line_released_dttm::date) between current_date - 120 and current_date - 1
 ;
 
 drop table if exists split_prods;
@@ -54,7 +54,7 @@ create local temp table split_prods on commit preserve rows as
 drop table if exists nb_hg_items;
 create local temp table nb_hg_items on commit preserve rows as
         select distinct item
-        from sandbox_supply_chain.cmorris10_history_data_test --regional_orders
+        from sandbox_supply_chain.regional_ordering
         order by 1
 ;
 
@@ -68,7 +68,7 @@ with a as (
         group by 1,2
 )
 select order_released_date
-        ,contains_nbhg_item
+        ,case when contains_nbhg_item = 1 then true else false end as contains_nbhg_item
         ,sum(is_split) / count(*) as split_rate
         ,sum(is_split) as split_order_count
         ,count(*) as count_orders 

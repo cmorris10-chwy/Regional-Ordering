@@ -16,6 +16,23 @@
 --from local 'C:\Users\cmorris10\Downloads\6-13-22_orders.csv'
 --parser fcsvparser(delimiter = ',');
 
+drop table if exists reg;
+create local temp table reg on commit preserve rows as
+        select 'AVP1' as location_code, 'East' as region union all
+        select 'AVP2' as location_code, 'East' as region union all
+        select 'CFC1' as location_code, 'Central' as region union all
+        select 'CLT1' as location_code, 'South East' as region union all
+        select 'DAY1' as location_code, 'Central' as region union all
+        select 'DFW1' as location_code, 'Central' as region union all
+        select 'EFC3' as location_code, 'East' as region union all
+        select 'MCI1' as location_code, 'Central' as region union all
+        select 'MCO1' as location_code, 'South East' as region union all
+        select 'MDT1' as location_code, 'East' as region union all
+        select 'PHX1' as location_code, 'West' as region union all
+        select 'RNO1' as location_code, 'West' as region union all
+        select 'WFC2' as location_code, 'West' as region
+;
+
 drop table if exists locations;
 create local temp table locations on commit preserve rows as
         select location_key
@@ -34,13 +51,14 @@ create local temp table locations on commit preserve rows as
 drop table if exists nb_hg_items;
 create local temp table nb_hg_items on commit preserve rows as
         select distinct item
-        from sandbox_supply_chain.cmorris10_history_data_test--regional_orders
+        from sandbox_supply_chain.regional_ordering
         order by 1
 ;
 
 drop table if exists item_ship_zones;
 create local temp table item_ship_zones on commit preserve rows as
         select olm.order_key
+                ,region
 --                ,case when count(distinct location_code) > 1 then 1 else 0 end as is_split
                 ,least(1,sum(case when nb.item is not null then 1 else 0 end)) as contains_nbhg_item 
                 ,min(order_line_released_dttm::date) as order_released_date
@@ -49,19 +67,21 @@ create local temp table item_ship_zones on commit preserve rows as
         join chewybi.orders o using(order_key)
         join chewybi.shipment_order_line sol on olm.order_line_id=sol.order_line_id
         join locations l on location_key = fulfillment_center_key
+        join reg on l.location_code=reg.location_code
         join chewybi.products p on olm.product_key=p.product_key
         left join nb_hg_items nb on p.product_part_number=nb.item
         where order_status not in ('X','J')
-        group by 1
-        having min(order_line_released_dttm::date) between '2022-04-01' and current_date - 1
+        group by 1,2
+        having min(order_line_released_dttm::date) between '2022-03-01' and current_date - 1
         order by 1
 ;
 
 select order_released_date
-        ,contains_nbhg_item
+        ,region
+        ,case when contains_nbhg_item = 1 then true else false end as contains_nbhg_item
         ,avg(actual_zone) as avg_zone_shipped
 from item_ship_zones z
-group by 1,2
+group by 1,2,3
 order by 1,2
 ;
 

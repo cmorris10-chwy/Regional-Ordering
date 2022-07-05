@@ -45,10 +45,7 @@ create local temp table item_fc_data on commit preserve rows as
                 on i.inventory_snapshot_snapshot_dt=p.snapshot_date
                 and i.product_part_number=p.product_part_number
         left join (select distinct item
-                from sandbox_supply_chain.regional_ordering
-                union
-                select distinct item
-                from sandbox_supply_chain.cmorris10_history_data_test) ro on i.product_part_number=ro.item --regional_orders) ro on i.product_part_number=ro.item_id
+                from sandbox_supply_chain.regional_ordering) ro on i.product_part_number=ro.item --regional_orders) ro on i.product_part_number=ro.item_id
         left join sandbox_supply_chain.non_replenishable_items nri on i.product_part_number=nri.product_part_number
                                                                 and nri.snapshot_date=current_date
         where 1=1
