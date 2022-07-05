@@ -17,7 +17,7 @@ create local temp table regional_orders on commit preserve rows as
                 ,case when e.supplier_cd is not null then true else false end as excluded_vendor
         from sandbox_supply_chain.regional_ordering r 
         left join exclusion_vendors e on split_part(r.supplier,'-',1)=e.supplier_cd
-        where order_date=current_date--1
+        where order_date=current_date-1
 ;
 
 --select action_
@@ -52,7 +52,7 @@ create local temp table yesterdays_orders on commit preserve rows as
         join chewybi.products p using(product_key)
         join chewybi.vendors v using(vendor_key)
         join chewybi.locations l using(location_key)
-        where document_order_dttm::date=current_date--1 --Monday or Wednesday
+        where document_order_dttm::date=current_date-1 --Monday or Wednesday
                 and deleted_by_users is false
                 and document_type = 'Purchase'
                 and pdpm.data_source = 'ORACLE'
@@ -60,7 +60,6 @@ create local temp table yesterdays_orders on commit preserve rows as
                 and coalesce(document_wms_closed_flag,false) is false
                 and coalesce(document_ready_to_reconcile_flag,false) is false
 ;
-select purchaser_code,count(*) from yesterdays_orders group by 1;
 
 drop table if exists orders;
 create local temp table orders on commit preserve rows as
@@ -108,12 +107,13 @@ create local temp table compliance_output on commit preserve rows as
                 ,case when ro.action_ is null then 'Manual Order' 
                         when ro.excluded_vendor is true then 'Exclusion Process'
                         else ro.action_ end as "Recommendation"
-                ,case   when ro.excluded_vendor is true and orders_placed is not null then 'Ordered via Exclusion process'
+                ,case   when ro.excluded_vendor is true then 'Ordered via Exclusion process'
                         when ro.action_='APPROVE' and orders_placed is null then 'Not ordered but Approved'
                         when ro.action_='APPROVE' and orders_placed is not null then 'Ordered and Approved'
                         when ro.action_='REJECT' and orders_placed is not null then 'Ordered but Rejected'
                         when ro.action_='REJECT' and orders_placed is null then 'Not ordered and Rejected'
                         when ro.action_='REJECT: Did not Propose' and orders_placed is not null then 'Ordered without Proposal'
+                        when ro.action_ is null then 'Ordered without a Proposal'
                         else 'NA'
                         end as action_taken_by_planner
                 ,coalesce(ro.item,o.product_part_number) as product_part_number
@@ -173,7 +173,11 @@ create local temp table compliance_output on commit preserve rows as
         order by 7
 ;
 
-select * from compliance_output order by 1,8,5;--where product_part_number='101303';
+select * 
+from compliance_output 
+where 1=1
+        and action_taken_by_planner not in ('Not ordered and Rejected','NA')
+order by 1,9,5;--where product_part_number='101303';
 
 ---------------------------------------------------------
 -- Explore PDP and Sales for items that created excess --
