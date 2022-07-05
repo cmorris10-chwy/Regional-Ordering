@@ -443,7 +443,7 @@ DELETE /*+direct*/ FROM sandbox_supply_chain.regional_ordering WHERE order_date 
 INSERT /*direct*/ INTO sandbox_supply_chain.regional_ordering (
         with x as (
                 select current_date as order_date
-                        ,last_value(v.vendor_purchaser_code) over (partition by item,region) as "Supply Planner" --Need to populate missing supply planner codes so that the filter works properly
+                        ,last_value(v.vendor_purchaser_code ignore nulls) over (partition by item,region) as "Supply Planner" --Need to populate missing supply planner codes so that the filter works properly
                         ,MC1
                         ,case   when supplier is null then 'REJECT: Did not Propose'
                                 when projected_region_oos is true and region_need_left_after_order_cummulative_so99 < 0 and fc_need_rank_in_region = 1 then 'APPROVE' --Region need is satisfied by rank=1 proposal released
