@@ -2,10 +2,10 @@
 
 drop table if exists exclusion_vendors;
 create local temp table exclusion_vendors
-        (supplier_cd varchar(15)
-        ,min_dollar_amount numeric
-        ,min_weight numeric
-        ,min_units_per_order numeric)
+        (supplier_cd varchar(15))
+--        ,min_dollar_amount numeric
+--        ,min_weight numeric
+--        ,min_units_per_order numeric)
 on commit preserve rows;
 copy exclusion_vendors
 from local 'C:\Users\cmorris10\OneDrive - Chewy.com, LLC\Projects\Excess Inventory\Compliance Reporting\Vendor_Exception_List.csv'
@@ -98,7 +98,7 @@ create local temp table forecast on commit preserve rows as
 
 drop table if exists compliance_output;
 create local temp table compliance_output on commit preserve rows as
-        select purchaser_code
+        select coalesce(purchaser_code,ro.supply_planner) as "Supply Planner"
                 ,p.product_merch_classification1 as MC1
                 ,document_order_date
                 ,region
