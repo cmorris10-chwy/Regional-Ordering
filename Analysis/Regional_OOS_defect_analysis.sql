@@ -34,6 +34,7 @@ create local temp table reg_oos on commit preserve rows as
                         and coalesce(product_discontinued_flag,false) is false
                         and coalesce(private_label_flag,false) is false
                         and coalesce(product_dropship_flag,false) is false
+--                        and i.product_part_number='100851'
                 group by 1,2,3,4,5
         )
         , conditions as (
@@ -43,91 +44,100 @@ create local temp table reg_oos on commit preserve rows as
                         ,region
                         ,product_published_flag
                         ,is_instock
-                        ,conditional_change_event(is_instock) over (partition by product_part_number order by inventory_date desc) as change_event
+                        ,conditional_change_event(is_instock) over (partition by product_part_number,region order by inventory_date desc) as change_event
                 from regional_state
-                where product_part_number in (select product_part_number from regional_state where is_instock is false and inventory_date=current_date)
+                where 1=1
+        )
+        , oos_regions as (
+                select product_part_number
+                        ,region
+                from regional_state
+                where is_instock is false
+                        and inventory_date = current_date
         )
         select c.product_part_number
                 ,case when nri.product_part_number is null then 'true' else nri.Non_Replen_Cat end as is_replenishable_item
                 ,parent_company
-                ,region
+                ,c.region
                 ,product_published_flag
                 ,COUNT(*) as days_OOS
         from conditions c
+        join oos_regions oos
+                on c.product_part_number=oos.product_part_number
+                and c.region=oos.region
         left join sandbox_supply_chain.non_replenishable_items nri
                 on nri.snapshot_date=current_date
                 and c.product_part_number=nri.product_part_number
         where change_event=0
         group by 1,2,3,4,5
-        order by 6 desc,1,4;
-
-drop table if exists reg_oos_vendors;
-create local temp table reg_oos_vendors on commit preserve rows as
-        select r.product_part_number
-                ,r.region
-                ,cil.location
-                ,supplier
-        from reg_oos r
-        join reg using(region)
-        join chewy_prod_740.C_ITEMLOCATION cil
-                on r.product_part_number=cil.item
-                and reg.location_code=cil.location
-        where 1=1
-                and is_replenishable_item = 'true'
+        order by 6 desc,1,4
 ;
+
+--select supplier,product_part_number,location,ro.region,*
+--from reg_oos ro
+--join reg using(region)
+--join chewy_prod_740.C_ITEMLOCATION cil on ro.product_part_number=cil.item
+--        and cil.location=reg.location_code;
 
 drop table if exists last_opportunity;
 create local temp table last_opportunity on commit preserve rows as
-        select r.product_part_number
-                ,r.location
-                ,r.region
-                ,max(order_date) as last_order_date
-                ,COUNT(*) as opportunities_to_order_count
-        from reg_oos_vendors r
-        left join sandbox_supply_chain.regional_ordering o
-                on r.product_part_number=o.item
-                and r.location=o.location
-                and r.supplier=o.supplier
-        group by 1,2,3
-        order by 1,3,2
+        select reg.product_part_number
+                ,o.region
+                ,MAX(order_date) as last_regional_proposal_date
+        from sandbox_supply_chain.regional_ordering o
+        join reg_oos reg 
+                on o.item=reg.product_part_number
+                and o.region=reg.region
+        group by 1,2
 ;
 
---Ordering recommendations based on the most recent proposal for the item-FC
-drop table if exists reg_ord_recs;
-create local temp table reg_ord_recs on commit preserve rows as 
-        select lo.product_part_number
-                ,lo.location
-                ,lo.region
-                ,o.order_date
-                ,o.supply_planner
-                ,p.parent_company
-                ,o.supplier
-                ,o.MC1
-                ,o.action_
-                ,o.proposed_FC_qty
-                ,o.FC_Region_Need_percent_so99
-                ,o.region_proposed_cummulative_quantity
-                ,o.total_region_SS
-                ,o.total_region_IP
-                ,o.total_region_NEED
-                ,o.fc_need_rank_in_region
-        from last_opportunity lo
-        join chewybi.products p using(product_part_number)
-        left join sandbox_supply_chain.regional_ordering o
-                on lo.product_part_number=o.item
-                and lo.location=o.location
-                and lo.last_order_date=o.order_date
+drop table if exists reg_oos_recs;
+create local temp table reg_oos_recs on commit preserve rows as
+        select roos.product_part_number
+                ,cil.location
+                ,reg.region
+                ,roos.days_OOS as days_Region_OOS
+                ,ro.order_date
+                ,v.vendor_purchaser_code as "Supply Planner"
+                ,cil.supplier as current_primary_supplier
+                ,v.vendor_direct_import_flag
+                ,ro.supplier as last_proposed_for_supplier
+                ,ro.action_
+                ,ro.projected_region_oos
+                ,ro.proposed_FC_qty
+                ,ro.ERDD
+                ,ro.FC_Region_Need_percent_so99
+                ,ro.region_proposed_cummulative_quantity
+                ,ro.total_region_SS
+                ,ro.total_region_IP
+                ,ro.total_region_NEED
+                ,ro.fc_need_rank_in_region
+        from reg_oos roos
+        join reg using(region)
+        join chewy_prod_740.C_ITEMLOCATION cil
+                on roos.product_part_number=cil.item
+                and reg.location_code=cil.location
+        left join last_opportunity lo
+                on roos.product_part_number=lo.product_part_number
+                and roos.region=lo.region
+        left join sandbox_supply_chain.regional_ordering ro
+                on roos.product_part_number=ro.item
+                and cil.location=ro.location
+                and lo.last_regional_proposal_date=ro.order_date
+        left join chewybi.vendors v
+                on split_part(cil.supplier,'-',1)=v.vendor_number
         order by 1,3,2
-;
+; 
+--select * from reg_oos_recs where product_part_number='101509';
 
 drop table if exists open_orders;
 create local temp table open_orders on commit preserve rows as
-        select   c.item as product_part_number
-                ,c.location
+        select   r.product_part_number
+                ,r.location
                 ,sum(onordqty) as oo_units
                 ,min(date(year||'-'||month||'-'||day)) as earliest_PO_ERDD
                 ,listagg(lotID) as open_PO_list
-        from reg_ord_recs r
+        from reg_oos_recs r
         join chewy_prod_740.C_ONORDER_DET c
                 on r.product_part_number=c.item
                 and r.location=c.location
@@ -136,6 +146,7 @@ create local temp table open_orders on commit preserve rows as
                 and date(year||'-'||month||'-'||day) >= current_date
         group by 1,2
 ;
+--select * from open_orders where product_part_number='102275';
 
 drop table if exists combined_data;
 create local temp table combined_data on commit preserve rows as
@@ -143,20 +154,72 @@ create local temp table combined_data on commit preserve rows as
                 ,oo.oo_units
                 ,oo.earliest_PO_ERDD
                 ,oo.open_PO_list
-        from reg_ord_recs ro
+        from reg_oos_recs ro
         left join open_orders oo
                 using(product_part_number,location)
-        order by product_part_number,region,location;
+        order by product_part_number,region,location
+;
 
-select product_part_number
-        ,region
-        ,zeroifnull(SUM(oo_units)) as region_OO
-        ,MIN(earliest_PO_ERDD) as projected_region_instock_date
-from combined_data
-group by 1,2
-having zeroifnull(SUM(oo_units)) = 0
-order by 1,2;
+with none_oo as (
+        select product_part_number
+                ,region
+                ,zeroifnull(SUM(oo_units)) as region_OO
+--                ,MIN(earliest_PO_ERDD) as projected_region_instock_date
+--                ,MAX(order_date) as most_recent_proposal_date
+        from combined_data
+        group by 1,2
+        having zeroifnull(SUM(oo_units)) = 0
+        order by 1,2
+)
+, combo as (
+        select p.product_merch_classification1 as MC1
+                ,p.parent_company
+                ,oo.product_part_number
+--                ,p.private_label_flag
+--                ,cd.vendor_direct_import_flag
+                ,oo.region
+                ,cd.location
+                ,cd.days_Region_OOS
+                ,ag."Issue Class 1"
+                ,ag."Issue Class 2"
+                ,cd.order_date as last_chance_to_order_in_region
+                ,cd."Supply Planner" --this is the Planner for the current Primary Vendor
+                ,cd.current_primary_supplier
+                ,cd.last_proposed_for_supplier
+                ,cd.action_
+                ,cd.projected_region_oos
+                ,cd.proposed_FC_qty
+                ,cd.FC_Region_Need_percent_so99
+                ,cd.total_region_NEED
+                ,cd.total_region_SS
+                ,cd.total_region_IP
+                ,cd.fc_need_rank_in_region
+        from none_oo oo
+        join combined_data cd
+                using(product_part_number,region)
+        join chewybi.products p 
+                on oo.product_part_number=p.product_part_number
+        left join sandbox_supply_chain.cmorris10_assortment_gap_buckets ag
+                on ag.snapshot_date=current_date
+                and oo.product_part_number=ag.replenishable_item
+                and cd.location=ag.location
+        where coalesce(private_label_flag,false) is false
+                and coalesce(vendor_direct_import_flag,false) is false
+)
+select case when "Supply Planner" = 'DAPATEL' then 'Primary thru Distro'
+            when "Issue Class 1" in ('One-Time-Buy','Dropship') then 'OTB/Dropship'
+            when "Issue Class 2" = 'Future Availability or Launch Date' then 'Future Availability or Launch Date' 
+            when "Issue Class 2" = 'Vendor being Setup' then 'Vendor being Setup'
+            when "Supply Planner" is null then 'No Available Vendor' --this can be for no SPA or supplier-location not enabled
+            when "Supply Planner" not in ('PPRAKASH','BROSEN','MODZER','BNEUBAUER','MWILSON','SSHARAN','JMALAVIYA','MEMILLER') then 'Non-HG/Specialty Planner'
+            else null
+        end as "Grouping"
+        , *
+from combo
+order by product_part_number, region, location
+;
 
+------------------------------------------------------
 select *
 from sandbox_supply_chain.regional_ordering
-where item='100864';
+where item='101089';
